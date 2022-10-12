@@ -1,34 +1,59 @@
-import { rest } from 'msw'
-import * as React from 'react'
-import { renderHook, waitFor } from '@testing-library/react'
-import { server } from '../setupTests'
-import { createWrapper } from './utils'
-import { useRepoData } from '../hooks'
+import { waitFor } from "@testing-library/react";
+import { renderHook } from "@testing-library/react-hooks";
+import { act } from "react-dom/test-utils";
+import { createWrapper } from "./utils";
+import { useInfiniteRepoData } from "../hooks";
+import * as api from "../api";
 
-describe('query hook', () => {
-    test('successful query hook', async () => {
-        const { result } = renderHook(() => useRepoData(), {
-            wrapper: createWrapper()
-        })
+describe("query hook", () => {
+  const apiCall = jest.spyOn(api, "fetchRepoData");
 
-        await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  beforeEach(() => {
+    apiCall.mockResolvedValue({ name: "mocked-react-query" });
+  });
 
-        expect(result.current.data?.name).toBe('mocked-react-query')
-    })
+  const tries = new Array(10).fill(undefined).map((_, index) => index);
 
-    test('failure query hook', async () => {
-        server.use(
-            rest.get('*', (req, res, ctx) => {
-                return res(ctx.status(500))
-            })
-        )
+  test.each(tries)("flaky try: %s", async () => {
+    const { result } = renderHook(() => useInfiniteRepoData(), {
+      wrapper: createWrapper,
+    });
 
-        const { result } = renderHook(() => useRepoData(), {
-            wrapper: createWrapper()
-        })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-        await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.flatData).toEqual([{ name: "mocked-react-query" }]);
 
-        expect(result.current.error).toBeDefined()
-    })
-})
+    act(() => {
+      result.current.fetchNextPage();
+    });
+
+    await waitFor(() => result.current.isFetching);
+    await waitFor(() => !result.current.isFetching);
+
+    expect(result.current.flatData).toEqual([
+      { name: "mocked-react-query" },
+      { name: "mocked-react-query" },
+    ]);
+  });
+
+  test.each(tries)("success try: %s", async () => {
+    const { result } = renderHook(() => useInfiniteRepoData(), {
+      wrapper: createWrapper,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.flatData).toEqual([{ name: "mocked-react-query" }]);
+
+    act(() => {
+      result.current.fetchNextPage();
+    });
+
+    await waitFor(() =>
+      expect(result.current.flatData).toEqual([
+        { name: "mocked-react-query" },
+        { name: "mocked-react-query" },
+      ])
+    );
+  });
+});
